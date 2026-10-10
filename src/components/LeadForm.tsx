@@ -7,6 +7,7 @@ type LeadKind = "demo" | "contact";
 
 export function LeadForm({ kind = "demo", productDefault }: { kind?: LeadKind; productDefault?: "POS" | "GMS" | "Both" }) {
   const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState("");
   const isDemo = kind === "demo";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -21,10 +22,20 @@ export function LeadForm({ kind = "demo", productDefault }: { kind?: LeadKind; p
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...payload, kind }),
       });
-      if (!response.ok) throw new Error("Lead submission failed");
+      const result: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const detail = result && typeof result === "object" ? result as Record<string, unknown> : {};
+        const code = typeof detail.code === "string" ? detail.code : `HTTP_${response.status}`;
+        const message = typeof detail.error === "string" ? detail.error : "The request failed unexpectedly.";
+        const requestId = typeof detail.requestId === "string" ? ` (request ID: ${detail.requestId})` : "";
+        setErrorMessage(`[${code}] ${message}${requestId}`);
+        setStatus("error");
+        return;
+      }
       form.reset();
       setStatus("success");
     } catch {
+      setErrorMessage("[NETWORK_ERROR] The site could not reach its email endpoint. Check your connection and try again.");
       setStatus("error");
     }
   }
@@ -55,7 +66,7 @@ export function LeadForm({ kind = "demo", productDefault }: { kind?: LeadKind; p
         <label className="form-message">{isDemo ? "Anything we should know? (optional)" : "Message"}<textarea name="message" rows={4} maxLength={2000} required={!isDemo} /></label>
       </div>
       <label className="honeypot" aria-hidden="true">Leave this field empty<input name="website" tabIndex={-1} autoComplete="off" /></label>
-      {status === "error" ? <p className="form-error" role="alert">We couldn’t send your request right now. Please email <a href={`mailto:${site.email}`}>{site.email}</a> or contact us on WhatsApp.</p> : null}
+      {status === "error" ? <p className="form-error" role="alert">{errorMessage} Please email <a href={`mailto:${site.email}`}>{site.email}</a> or contact us on WhatsApp.</p> : null}
       <div className="form-submit"><button className="button" type="submit" disabled={status === "sending"}>{status === "sending" ? "Sending…" : isDemo ? "Request a demo" : "Send message"}<span aria-hidden="true">→</span></button><p>Or email us at <a href={`mailto:${site.email}`}>{site.email}</a>.</p><p className="form-privacy-note">We use these details to respond to your request. <a href="/privacy">Read our privacy notice</a>.</p></div>
     </form>
   );
